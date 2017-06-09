@@ -170,11 +170,12 @@ type EmbdEtcd struct { // EMBeddeD etcd
 	ctxErr error // permanent ctx error
 
 	// exit and cleanup related
-	cancelLock  sync.Mutex // lock for the cancels list
-	cancels     []func()   // array of every cancel function for watches
-	exiting     bool
-	exitchan    chan struct{}
-	exitTimeout <-chan time.Time
+	cancelLock sync.Mutex // lock for the cancels list
+	cancels    []func()   // array of every cancel function for watches
+	exiting    bool
+	exitchan   chan struct{}
+	exitchanCb chan struct{}
+	exitwg     *sync.WaitGroup // wait for main loops to shutdown
 
 	hostname   string
 	memberID   uint64            // cluster membership id of server if running
@@ -218,14 +219,15 @@ func NewEmbdEtcd(hostname string, seeds, clientURLs, serverURLs etcdtypes.URLs, 
 		idealClusterSize = 0 // unset, get from running cluster
 	}
 	obj := &EmbdEtcd{
-		exitchan:    make(chan struct{}), // exit signal for main loop
-		exitTimeout: nil,
-		awq:         make(chan *AW),
-		wevents:     make(chan *RE),
-		setq:        make(chan *KV),
-		getq:        make(chan *GQ),
-		delq:        make(chan *DL),
-		txnq:        make(chan *TN),
+		exitchan:   make(chan struct{}), // exit signal for main loop
+		exitchanCb: make(chan struct{}),
+		exitwg:     &sync.WaitGroup{},
+		awq:        make(chan *AW),
+		wevents:    make(chan *RE),
+		setq:       make(chan *KV),
+		getq:       make(chan *GQ),
+		delq:       make(chan *DL),
+		txnq:       make(chan *TN),
 
 		nominated: make(etcdtypes.URLsMap),
 
@@ -449,7 +451,8 @@ func (obj *EmbdEtcd) Destroy() error {
 	}
 	obj.cancelLock.Unlock()
 
-	obj.exitchan <- struct{}{} // cause main loop to exit
+	close(obj.exitchan) // cause main loop to exit
+	close(obj.exitchanCb)
 
 	obj.rLock.Lock()
 	if obj.client != nil {
@@ -462,6 +465,7 @@ func (obj *EmbdEtcd) Destroy() error {
 	//if obj.server != nil {
 	//	return obj.DestroyServer()
 	//}
+	obj.exitwg.Wait()
 	return nil
 }
 
@@ -703,12 +707,15 @@ func (obj *EmbdEtcd) CtxError(ctx context.Context, err error) (context.Context, 
 
 // CbLoop is the loop where callback execution is serialized.
 func (obj *EmbdEtcd) CbLoop() {
+	obj.exitwg.Add(1)
+	defer obj.exitwg.Done()
 	cuid := obj.converger.Register()
 	cuid.SetName("Etcd: CbLoop")
 	defer cuid.Unregister()
 	if e := obj.Connect(false); e != nil {
 		return // fatal
 	}
+	var exitTimeout <-chan time.Time
 	// we use this timer because when we ignore un-converge events and loop,
 	// we reset the ConvergedTimer case statement, ruining the timeout math!
 	cuid.StartTimer()
@@ -748,8 +755,18 @@ func (obj *EmbdEtcd) CbLoop() {
 				log.Printf("Trace: Etcd: CbLoop: Event: FinishLoop")
 			}
 
+		// exit loop signal
+		case <-obj.exitchanCb:
+			obj.exitchanCb = nil
+			log.Println("Etcd: Exiting loop shortly...")
+			// activate exitTimeout switch which only opens after N
+			// seconds of inactivity in this select switch, which
+			// lets everything get bled dry to avoid blocking calls
+			// which would otherwise block us from exiting cleanly!
+			exitTimeout = util.TimeAfterOrBlock(exitDelay)
+
 		// exit loop commit
-		case <-obj.exitTimeout:
+		case <-exitTimeout:
 			log.Println("Etcd: Exiting callback loop!")
 			cuid.StopTimer() // clean up nicely
 			return
@@ -759,12 +776,15 @@ func (obj *EmbdEtcd) CbLoop() {
 
 // Loop is the main loop where everything is serialized.
 func (obj *EmbdEtcd) Loop() {
+	obj.exitwg.Add(1) // TODO: add these to other go routines?
+	defer obj.exitwg.Done()
 	cuid := obj.converger.Register()
 	cuid.SetName("Etcd: Loop")
 	defer cuid.Unregister()
 	if e := obj.Connect(false); e != nil {
 		return // fatal
 	}
+	var exitTimeout <-chan time.Time // zero value is nil
 	cuid.StartTimer()
 	for {
 		ctx := context.Background() // TODO: inherit as input argument?
@@ -899,15 +919,16 @@ func (obj *EmbdEtcd) Loop() {
 
 		// exit loop signal
 		case <-obj.exitchan:
+			obj.exitchan = nil
 			log.Println("Etcd: Exiting loop shortly...")
 			// activate exitTimeout switch which only opens after N
 			// seconds of inactivity in this select switch, which
 			// lets everything get bled dry to avoid blocking calls
 			// which would otherwise block us from exiting cleanly!
-			obj.exitTimeout = util.TimeAfterOrBlock(exitDelay)
+			exitTimeout = util.TimeAfterOrBlock(exitDelay)
 
 		// exit loop commit
-		case <-obj.exitTimeout:
+		case <-exitTimeout:
 			log.Println("Etcd: Exiting loop!")
 			cuid.StopTimer() // clean up nicely
 			return
