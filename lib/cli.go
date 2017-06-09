@@ -156,9 +156,8 @@ func run(c *cli.Context) error {
 	}()
 
 	if err := obj.Run(); err != nil {
-		return err
 		//return cli.NewExitError(err.Error(), 1) // TODO: ?
-		//return cli.NewExitError("", 1) // TODO: ?
+		return cli.NewExitError("", 1)
 	}
 	return nil
 }

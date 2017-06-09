@@ -682,8 +682,9 @@ func (obj *Main) Run() error {
 	if obj.Flags.Debug {
 		log.Printf("Main: Graph: %v", graph)
 	}
-
-	// TODO: wait for each vertex to exit...
+	if reterr != nil {
+		log.Printf("Main: Error: %v", reterr)
+	}
 	log.Println("Goodbye!")
 	return reterr
 }
