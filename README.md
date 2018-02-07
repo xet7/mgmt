@@ -17,6 +17,25 @@ Come join us in the `mgmt` community!
 | Twitter | [@mgmtconfig](https://twitter.com/mgmtconfig) & [#mgmtconfig](https://twitter.com/hashtag/mgmtconfig) |
 | Mailing list | [mgmtconfig-list@redhat.com](https://www.redhat.com/mailman/listinfo/mgmtconfig-list) |
 
+## Example:
+
+### put these contents in date1.mcl:
+```
+$d = datetime()
+file "/tmp/mgmt-datetime" {
+	content => printf("seconds since 1970: %d\n", $d),
+}
+```
+### run this code with:
+```
+mgmt run --lang date1.mcl --tmp-prefix
+```
+
+### watch the output with:
+```
+watch -n 0.1 'cat /tmp/mgmt-datetime'
+```
+
 ## Status:
 Mgmt is a next generation automation tool. It has similarities to other tools in
 the configuration management space, but has a fast, modern, distributed systems

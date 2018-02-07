@@ -86,5 +86,7 @@ go get golang.org/x/tools/cmd/goyacc			# formerly `go tool yacc`
 go get golang.org/x/tools/cmd/stringer			# for automatic stringer-ing
 go get github.com/jteeuwen/go-bindata/go-bindata	# for compiling in non golang files
 go get github.com/golang/lint/golint			# for `golint`-ing
-go get -u gopkg.in/alecthomas/gometalinter.v1 && mv "$(dirname $(command -v gometalinter.v1))/gometalinter.v1" "$(dirname $(command -v gometalinter.v1))/gometalinter" && gometalinter --install	# bonus
+go get -u gopkg.in/alecthomas/gometalinter.v1 && mv "$(dirname $(command -v gometalinter.v1))/gometalinter.v1" "$(dirname $(command -v gometalinter.v1))/gometalinter" && gometalinter --install || true	# bonus
 cd "$XPWD" >/dev/null
+
+echo 'Make sure your $GOPATH/bin/ directory exists in your $PATH, since some of those are needed to build.'
